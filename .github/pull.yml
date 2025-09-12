@@ -1,0 +1,8 @@
+version: "1"
+rules:
+  - base: dev
+    upstream: briangallagher:test-upstream
+    mergeMethod: rebase
+  - base: mirror-main
+    upstream: briangallagher:test-upstream
+    mergeMethod: rebase
