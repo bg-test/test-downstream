@@ -1,0 +1,39 @@
+name: Rebase Downstream on Upstream
+
+on:
+  schedule:
+    # Runs every day at 02:00 UTC
+    - cron: '* * * * *'
+  workflow_dispatch:  # allows manual triggering
+
+jobs:
+  rebase:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout downstream repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0  # needed to fetch full history for rebase
+
+      - name: Set up Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/briangallagher/test-upstream.git
+          git fetch upstream
+
+      - name: Rebase onto upstream/main
+        run: |
+          git checkout main
+          git rebase upstream/main || git rebase --abort && exit 1
+
+      - name: Push rebased branch to origin
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git push origin main --force
