@@ -3,6 +3,3 @@ rules:
   - base: main
     upstream: briangallagher:test-upstream
     mergeMethod: rebase
-  - base: mirror-main
-    upstream: briangallagher:test-upstream
-    mergeMethod: rebase
