@@ -38,6 +38,7 @@ jobs:
           LOCAL_COMMIT=$(git rev-parse main)
           if git merge-base --is-ancestor $UPSTREAM_COMMIT $LOCAL_COMMIT; then
             echo "up_to_date=true" >> $GITHUB_OUTPUT
+            echo "✅ Already up to date. Nothing to rebase."
           else
             echo "up_to_date=false" >> $GITHUB_OUTPUT
           fi
@@ -53,6 +54,7 @@ jobs:
           else
               git rebase --abort
               echo "rebase_status=failure" >> $GITHUB_OUTPUT
+              echo "Rebase attempted and failed."
           fi
 
       # 6️⃣ Push to temporary branch for PR
