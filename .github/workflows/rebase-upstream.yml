@@ -61,7 +61,7 @@ jobs:
       - name: Push rebased branch
         if: steps.check_upstream.outputs.up_to_date == 'false' && steps.rebase.outputs.rebase_status == 'success'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: git push origin main:rebase/main-tmp --force
 
       # 7️⃣ Create or update PR for successful rebase
@@ -69,7 +69,7 @@ jobs:
         if: steps.check_upstream.outputs.up_to_date == 'false' && steps.rebase.outputs.rebase_status == 'success'
         uses: peter-evans/create-pull-request@v5
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PAT_TOKEN }}
           title: "Rebase main onto upstream/main"
           commit-message: "Rebased main onto upstream/main"
           base: main
