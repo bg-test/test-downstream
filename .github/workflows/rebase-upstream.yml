@@ -14,6 +14,9 @@ on:
         required: false
         default: main
 
+permissions:
+  contents: write
+  pull-requests: write
 
 jobs:
   rebase:
@@ -82,7 +85,7 @@ jobs:
         if: steps.check_upstream.outputs.up_to_date == 'false' && steps.rebase.outputs.rebase_status == 'success'
         uses: peter-evans/create-pull-request@v5
         with:
-          token: ${{ secrets.PAT_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           title: "Rebase ${{ env.DOWNSTREAM_BRANCH }} onto upstream/${{ env.UPSTREAM_BRANCH }}"
           commit-message: "Rebased ${{ env.DOWNSTREAM_BRANCH }} onto upstream/${{ env.UPSTREAM_BRANCH }}"
           base: ${{ env.DOWNSTREAM_BRANCH }}
