@@ -1,0 +1,101 @@
+name: Rebase Downstream on Upstream
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'  # every 5 minutes
+  workflow_dispatch:
+    inputs:
+      downstream_branch:
+        description: Downstream branch to rebase (destination)
+        required: false
+        default: main
+      upstream_branch:
+        description: Upstream branch to rebase onto (source)
+        required: false
+        default: main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  rebase:
+    runs-on: ubuntu-latest
+    env:
+      DOWNSTREAM_BRANCH: ${{ inputs.downstream_branch || 'main' }}
+      UPSTREAM_BRANCH: ${{ inputs.upstream_branch || 'main' }}
+
+    steps:
+      # 1️⃣ Checkout downstream repository
+      - name: Checkout downstream repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DOWNSTREAM_BRANCH }}
+
+      # 2️⃣ Set up Git
+      - name: Set up Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+
+      # 3️⃣ Add upstream remote and fetch
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/briangallagher/test-upstream.git
+          git fetch upstream
+
+      # 4️⃣ Check for upstream changes
+      - name: Check for upstream commits
+        id: check_upstream
+        run: |
+          git fetch upstream "$UPSTREAM_BRANCH"
+          UPSTREAM_COMMIT=$(git rev-parse "upstream/$UPSTREAM_BRANCH")
+          LOCAL_COMMIT=$(git rev-parse "$DOWNSTREAM_BRANCH")
+          if git merge-base --is-ancestor $UPSTREAM_COMMIT $LOCAL_COMMIT; then
+            echo "up_to_date=true" >> $GITHUB_OUTPUT
+            echo "✅ Already up to date. Nothing to rebase."
+          else
+            echo "up_to_date=false" >> $GITHUB_OUTPUT
+          fi
+
+      # 5️⃣ Rebase onto upstream/main if needed
+      - name: Rebase onto upstream branch
+        if: steps.check_upstream.outputs.up_to_date == 'false'
+        id: rebase
+        run: |
+          git checkout "$DOWNSTREAM_BRANCH"
+          if git rebase "upstream/$UPSTREAM_BRANCH"; then
+              echo "rebase_status=success" >> $GITHUB_OUTPUT
+          else
+              git rebase --abort
+              echo "rebase_status=failure" >> $GITHUB_OUTPUT
+              echo "Rebase attempted and failed."
+          fi
+
+      # 6️⃣ Push to temporary branch for PR
+      - name: Push rebased branch
+        if: steps.check_upstream.outputs.up_to_date == 'false' && steps.rebase.outputs.rebase_status == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: git push origin "$DOWNSTREAM_BRANCH":rebase/"${DOWNSTREAM_BRANCH}"-tmp --force
+
+      # 7️⃣ Create or update PR for successful rebase
+      - name: Create or update PR
+        if: steps.check_upstream.outputs.up_to_date == 'false' && steps.rebase.outputs.rebase_status == 'success'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          title: "Rebase ${{ env.DOWNSTREAM_BRANCH }} onto upstream/${{ env.UPSTREAM_BRANCH }}"
+          commit-message: "Rebased ${{ env.DOWNSTREAM_BRANCH }} onto upstream/${{ env.UPSTREAM_BRANCH }}"
+          base: ${{ env.DOWNSTREAM_BRANCH }}
+          head: rebase/${{ env.DOWNSTREAM_BRANCH }}-tmp
+          body: "Automatic rebase of downstream ${{ env.DOWNSTREAM_BRANCH }} onto upstream/${{ env.UPSTREAM_BRANCH }}."
+          draft: false
+          labels: automated-rebase
+
+      # 8️⃣ Fail workflow if rebase failed
+      - name: Fail workflow if rebase failed
+        if: steps.check_upstream.outputs.up_to_date == 'false' && steps.rebase.outputs.rebase_status == 'failure'
+        run: exit 1
+
