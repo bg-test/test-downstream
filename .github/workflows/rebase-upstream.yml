@@ -1,8 +1,23 @@
 name: Rebase Downstream on Upstream
+# This workflow keeps a downstream branch up to date by rebasing it onto an
+# upstream branch and opening/updating a PR with the rebased result.
+#
+# Why rebase?
+# - Keeps a linear history on the downstream branch, making it easier to read.
+# - Ensures downstream changes are replayed on top of upstream, reducing merge
+#   noise.
+#
+# How it works at a glance:
+# 1) Checkout downstream branch with full history (fetch-depth: 0)
+# 2) Add and fetch the upstream remote
+# 3) Detect if upstream is already contained in downstream; if yes, exit early
+# 4) Rebase downstream onto upstream
+# 5) Push rebased history to a temporary branch (force-with-lease)
+# 6) Create or update a PR from the temporary branch into downstream using GH CLI
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # every 5 minutes
+    - cron: '0 0 * * *'  
   workflow_dispatch:
     inputs:
       downstream_branch:
@@ -31,6 +46,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ env.DOWNSTREAM_BRANCH }}
+          # Fetch the full commit history so `git rebase` has everything it needs.
+          # Shallow clones (fetch-depth: 1) can cause rebase failures or surprises.
+          fetch-depth: 0
+          # Keep the token available for pushes made later in this workflow.
+          persist-credentials: true
 
       # 2️⃣ Set up Git
       - name: Set up Git
@@ -42,6 +62,7 @@ jobs:
       # 3️⃣ Add upstream remote and fetch
       - name: Add upstream remote
         run: |
+          # git remote add upstream https://github.com/kubeflow/sdk
           git remote add upstream https://github.com/briangallagher/test-upstream.git
           git fetch upstream
 
@@ -49,6 +70,8 @@ jobs:
       - name: Check for upstream commits
         id: check_upstream
         run: |
+          # Determine whether the upstream branch tip is already included in
+          # the downstream branch. If yes, we avoid unnecessary rebase.
           git fetch upstream "$UPSTREAM_BRANCH"
           UPSTREAM_COMMIT=$(git rev-parse "upstream/$UPSTREAM_BRANCH")
           LOCAL_COMMIT=$(git rev-parse "$DOWNSTREAM_BRANCH")
@@ -76,23 +99,51 @@ jobs:
       # 6️⃣ Push to temporary branch for PR
       - name: Push rebased branch
         if: steps.check_upstream.outputs.up_to_date == 'false' && steps.rebase.outputs.rebase_status == 'success'
-        env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: git push origin "$DOWNSTREAM_BRANCH":rebase/"${DOWNSTREAM_BRANCH}"-tmp --force
+        run: |
+          # Push the rebased downstream branch to a temporary branch that will
+          # back the pull request. Use force-with-lease for safety to avoid
+          # overwriting remote updates made by others unexpectedly.
+          git push origin "$DOWNSTREAM_BRANCH":rebase/"${DOWNSTREAM_BRANCH}"-tmp --force-with-lease
 
       # 7️⃣ Create or update PR for successful rebase
       - name: Create or update PR
         if: steps.check_upstream.outputs.up_to_date == 'false' && steps.rebase.outputs.rebase_status == 'success'
-        uses: peter-evans/create-pull-request@v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          title: "Rebase ${{ env.DOWNSTREAM_BRANCH }} onto upstream/${{ env.UPSTREAM_BRANCH }}"
-          commit-message: "Rebased ${{ env.DOWNSTREAM_BRANCH }} onto upstream/${{ env.UPSTREAM_BRANCH }}"
-          base: ${{ env.DOWNSTREAM_BRANCH }}
-          head: rebase/${{ env.DOWNSTREAM_BRANCH }}-tmp
-          body: "Automatic rebase of downstream ${{ env.DOWNSTREAM_BRANCH }} onto upstream/${{ env.UPSTREAM_BRANCH }}."
-          draft: false
-          labels: automated-rebase
+        env:
+          # GitHub CLI uses GH_TOKEN for auth; the default token has repo-scoped permissions.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Use GitHub CLI to create or update a PR from the temporary branch.
+          # This works reliably when the branch was already pushed by earlier steps.
+          set -euo pipefail
+
+          HEAD_BRANCH="rebase/${DOWNSTREAM_BRANCH}-tmp"
+          BASE_BRANCH="${DOWNSTREAM_BRANCH}"
+          TITLE="Rebase ${DOWNSTREAM_BRANCH} onto upstream/${UPSTREAM_BRANCH}"
+          BODY="Automatic rebase of downstream ${DOWNSTREAM_BRANCH} onto upstream/${UPSTREAM_BRANCH}."
+
+          # Try to find an existing open PR from HEAD_BRANCH into BASE_BRANCH.
+          PR_NUMBER=$(gh pr list \
+            --head "$HEAD_BRANCH" \
+            --base "$BASE_BRANCH" \
+            --state open \
+            --json number \
+            --jq '.[0].number' || true)
+
+          if [ -n "${PR_NUMBER:-}" ]; then
+            echo "PR #$PR_NUMBER exists. Updating title, body, and labels."
+            gh pr edit "$PR_NUMBER" \
+              --title "$TITLE" \
+              --body "$BODY" \
+              --add-label "automated-rebase"
+          else
+            echo "Creating PR from $HEAD_BRANCH to $BASE_BRANCH"
+            gh pr create \
+              --base "$BASE_BRANCH" \
+              --head "$HEAD_BRANCH" \
+              --title "$TITLE" \
+              --body "$BODY" \
+              --label "automated-rebase"
+          fi
 
       # 8️⃣ Fail workflow if rebase failed
       - name: Fail workflow if rebase failed
