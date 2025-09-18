@@ -32,6 +32,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  issues: write
 
 jobs:
   rebase:
@@ -62,7 +63,6 @@ jobs:
       # 3️⃣ Add upstream remote and fetch
       - name: Add upstream remote
         run: |
-          # git remote add upstream https://github.com/kubeflow/sdk
           git remote add upstream https://github.com/briangallagher/test-upstream
           git fetch upstream
 
@@ -120,6 +120,12 @@ jobs:
           BASE_BRANCH="${DOWNSTREAM_BRANCH}"
           TITLE="Rebase ${DOWNSTREAM_BRANCH} onto upstream/${UPSTREAM_BRANCH}"
           BODY="Automatic rebase of downstream ${DOWNSTREAM_BRANCH} onto upstream/${UPSTREAM_BRANCH}."
+          LABEL="automated-rebase"
+
+          # Ensure the label exists; if creation fails due to permissions, continue gracefully.
+          if ! gh label view "$LABEL" >/dev/null 2>&1; then
+            gh label create "$LABEL" --color "0e8a16" --description "Created by automated rebase workflow" || echo "Label create failed; continuing without labeling."
+          fi
 
           # Try to find an existing open PR from HEAD_BRANCH into BASE_BRANCH.
           PR_NUMBER=$(gh pr list \
@@ -130,19 +136,24 @@ jobs:
             --jq '.[0].number' || true)
 
           if [ -n "${PR_NUMBER:-}" ]; then
-            echo "PR #$PR_NUMBER exists. Updating title, body, and labels."
+            echo "PR #$PR_NUMBER exists. Updating title and body, then labeling if possible."
             gh pr edit "$PR_NUMBER" \
               --title "$TITLE" \
-              --body "$BODY" \
-              --add-label "automated-rebase"
+              --body "$BODY"
+            # Labeling may fail if labels are restricted; do not fail the workflow.
+            gh pr edit "$PR_NUMBER" --add-label "$LABEL" || echo "Could not add label '$LABEL'"
           else
             echo "Creating PR from $HEAD_BRANCH to $BASE_BRANCH"
-            gh pr create \
+            # Create PR without labels first to avoid failure if label is missing.
+            PR_NUMBER=$(gh pr create \
               --base "$BASE_BRANCH" \
               --head "$HEAD_BRANCH" \
               --title "$TITLE" \
               --body "$BODY" \
-              --label "automated-rebase"
+              --json number \
+              --jq .number)
+            # Then try to add label; ignore failure.
+            gh pr edit "$PR_NUMBER" --add-label "$LABEL" || echo "Could not add label '$LABEL'"
           fi
 
       # 8️⃣ Fail workflow if rebase failed
