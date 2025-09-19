@@ -32,7 +32,11 @@ on:
 permissions:
   contents: write
   pull-requests: write
+<<<<<<< HEAD
   issues: write
+=======
+
+>>>>>>> b0b052a (update workflow)
 
 jobs:
   rebase:
@@ -130,15 +134,20 @@ jobs:
       # 6️⃣ Push to temporary branch for PR
       - name: Push rebased branch
         if: steps.check_upstream.outputs.up_to_date == 'false' && steps.rebase.outputs.rebase_status == 'success'
+<<<<<<< HEAD
         run: |
           # Push the rebased downstream branch to a temporary branch that will
           # back the pull request. Use force-with-lease for safety to avoid
           # overwriting remote updates made by others unexpectedly.
           git push origin "$DOWNSTREAM_BRANCH":rebase/"${DOWNSTREAM_BRANCH}"-tmp --force-with-lease
+=======
+        run: git push origin "$DOWNSTREAM_BRANCH":rebase/"${DOWNSTREAM_BRANCH}"-tmp --force
+>>>>>>> b0b052a (update workflow)
 
       # 7️⃣ Create or update PR for successful rebase
       - name: Create or update PR
         if: steps.check_upstream.outputs.up_to_date == 'false' && steps.rebase.outputs.rebase_status == 'success'
+<<<<<<< HEAD
         env:
           # GitHub CLI uses GH_TOKEN for auth; the default token has repo-scoped permissions.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -174,6 +183,18 @@ jobs:
 
           # Add label to the PR; failures will stop the job
           gh pr edit "$HEAD_BRANCH" --repo "$REPO_REF" --add-label "$LABEL"
+=======
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          title: "Rebase ${{ env.DOWNSTREAM_BRANCH }} onto upstream/${{ env.UPSTREAM_BRANCH }}"
+          commit-message: "Rebased ${{ env.DOWNSTREAM_BRANCH }} onto upstream/${{ env.UPSTREAM_BRANCH }}"
+          base: ${{ env.DOWNSTREAM_BRANCH }}
+          head: rebase/${{ env.DOWNSTREAM_BRANCH }}-tmp
+          body: "Automatic rebase of downstream ${{ env.DOWNSTREAM_BRANCH }} onto upstream/${{ env.UPSTREAM_BRANCH }}."
+          draft: false
+          labels: automated-rebase
+>>>>>>> b0b052a (update workflow)
 
       # 8️⃣ Fail workflow if rebase failed
       - name: Fail workflow if rebase failed
