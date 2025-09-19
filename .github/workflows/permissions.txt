@@ -1,0 +1,10 @@
+Repo/org permissions you may need to enable so the default GITHUB_TOKEN can create and edit PRs:
+In repository Settings → Actions → General:
+Workflow permissions: set to “Read and write permissions”.
+Allow GitHub Actions to create and approve pull requests: enable.
+If your org enforces restricted GITHUB_TOKEN permissions, ensure the repo is allowed write.
+Branch protection: ensure PRs from rebase/<branch>-tmp to main are allowed (no rules blocking PR creation).
+If still blocked by policies, create a fine-scoped classic PAT or fine-grained PAT with:
+Repository permissions: Contents (Read/Write), Pull requests (Read/Write), Issues (Read/Write) if you label.
+Store as a secret (e.g., ACTIONS_TOKEN) and set GH_TOKEN: ${{ secrets.ACTIONS_TOKEN }} for the PR step.
+Want me to wire in a secret-based token fallback if GITHUB_TOKEN lacks rights?
