@@ -139,7 +139,16 @@ jobs:
           fi
 
           # Attempt to add the label to the PR by selecting via head branch.
-          gh pr edit "$HEAD_BRANCH" --add-label "$LABEL" || echo "Could not add label '$LABEL'"
+          # gh pr edit "$HEAD_BRANCH" --add-label "$LABEL" || echo "Could not add label '$LABEL'"
+          # Attempt to add the label to the PR by selecting via head branch.
+          # On failure, print the exact error output and show existing labels for diagnostics.
+          if ! LABEL_OUT=$(gh pr edit "$HEAD_BRANCH" --add-label "$LABEL" 2>&1); then
+            STATUS=$?
+            echo "Could not add label '$LABEL' (exit $STATUS). Error output:"
+            echo "$LABEL_OUT"
+            echo "Existing labels on PR (if resolvable):"
+            gh pr view "$HEAD_BRANCH" --json labels --jq '.labels[].name' || echo "Unable to retrieve labels."
+          fi          
 
       # 8️⃣ Fail workflow if rebase failed
       - name: Fail workflow if rebase failed
