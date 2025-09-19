@@ -122,18 +122,16 @@ jobs:
           BODY="Automatic rebase of downstream ${DOWNSTREAM_BRANCH} onto upstream/${UPSTREAM_BRANCH}."
           LABEL="automated-rebase"
 
-          # Ensure the label exists; if creation fails due to permissions, continue gracefully.
-          if ! gh label view "$LABEL" >/dev/null 2>&1; then
-            gh label create "$LABEL" --color "0e8a16" --description "Created by automated rebase workflow" || echo "Label create failed; continuing without labeling."
-          fi
+          # Repository owner/name used for REST queries
+          REPO_FULL="${GITHUB_REPOSITORY}"
+          OWNER="${REPO_FULL%%/*}"
+          REPO="${REPO_FULL#*/}"
 
-          # Try to find an existing open PR from HEAD_BRANCH into BASE_BRANCH.
-          PR_NUMBER=$(gh pr list \
-            --head "$HEAD_BRANCH" \
-            --base "$BASE_BRANCH" \
-            --state open \
-            --json number \
-            --jq '.[0].number' || true)
+          # Find an existing open PR from HEAD_BRANCH into BASE_BRANCH (via REST)
+          HEAD_SPEC="${OWNER}:${HEAD_BRANCH}"
+          PR_NUMBER=$(gh api repos/${OWNER}/${REPO}/pulls \
+            -f state=open -f head="${HEAD_SPEC}" -f base="${BASE_BRANCH}" \
+            | jq -r '.[0].number // empty')
 
           if [ -n "${PR_NUMBER:-}" ]; then
             echo "PR #$PR_NUMBER exists. Updating title and body, then labeling if possible."
@@ -144,15 +142,17 @@ jobs:
             gh pr edit "$PR_NUMBER" --add-label "$LABEL" || echo "Could not add label '$LABEL'"
           else
             echo "Creating PR from $HEAD_BRANCH to $BASE_BRANCH"
-            # Create PR without labels first to avoid failure if label is missing.
-            PR_NUMBER=$(gh pr create \
+            # Create PR (no JSON flags to avoid gh version incompatibilities)
+            gh pr create \
               --base "$BASE_BRANCH" \
               --head "$HEAD_BRANCH" \
               --title "$TITLE" \
-              --body "$BODY" \
-              --json number \
-              --jq .number)
-            # Then try to add label; ignore failure.
+              --body "$BODY"
+            # Query the created PR number
+            PR_NUMBER=$(gh api repos/${OWNER}/${REPO}/pulls \
+              -f state=open -f head="${HEAD_SPEC}" -f base="${BASE_BRANCH}" \
+              | jq -r '.[0].number // empty')
+            # Add label (assumes it already exists)
             gh pr edit "$PR_NUMBER" --add-label "$LABEL" || echo "Could not add label '$LABEL'"
           fi
 
