@@ -122,39 +122,24 @@ jobs:
           BODY="Automatic rebase of downstream ${DOWNSTREAM_BRANCH} onto upstream/${UPSTREAM_BRANCH}."
           LABEL="automated-rebase"
 
-          # Repository owner/name used for REST queries
-          REPO_FULL="${GITHUB_REPOSITORY}"
-          OWNER="${REPO_FULL%%/*}"
-          REPO="${REPO_FULL#*/}"
-
-          # Find an existing open PR from HEAD_BRANCH into BASE_BRANCH (via REST)
-          HEAD_SPEC="${OWNER}:${HEAD_BRANCH}"
-          PR_NUMBER=$(gh api repos/${OWNER}/${REPO}/pulls \
-            -f state=open -f head="${HEAD_SPEC}" -f base="${BASE_BRANCH}" \
-            | jq -r '.[0].number // empty')
-
-          if [ -n "${PR_NUMBER:-}" ]; then
-            echo "PR #$PR_NUMBER exists. Updating title and body, then labeling if possible."
-            gh pr edit "$PR_NUMBER" \
+          # If a PR already exists for this head branch, update it; otherwise create one.
+          if gh pr view "$HEAD_BRANCH" >/dev/null 2>&1; then
+            echo "Updating existing PR for $HEAD_BRANCH"
+            gh pr edit "$HEAD_BRANCH" \
               --title "$TITLE" \
               --body "$BODY"
-            # Labeling may fail if labels are restricted; do not fail the workflow.
-            gh pr edit "$PR_NUMBER" --add-label "$LABEL" || echo "Could not add label '$LABEL'"
           else
             echo "Creating PR from $HEAD_BRANCH to $BASE_BRANCH"
-            # Create PR (no JSON flags to avoid gh version incompatibilities)
+            # If there are no differences, this may return 422; don't fail the job in that case.
             gh pr create \
               --base "$BASE_BRANCH" \
               --head "$HEAD_BRANCH" \
               --title "$TITLE" \
-              --body "$BODY"
-            # Query the created PR number
-            PR_NUMBER=$(gh api repos/${OWNER}/${REPO}/pulls \
-              -f state=open -f head="${HEAD_SPEC}" -f base="${BASE_BRANCH}" \
-              | jq -r '.[0].number // empty')
-            # Add label (assumes it already exists)
-            gh pr edit "$PR_NUMBER" --add-label "$LABEL" || echo "Could not add label '$LABEL'"
+              --body "$BODY" || echo "PR create failed (likely no diff); continuing."
           fi
+
+          # Attempt to add the label to the PR by selecting via head branch.
+          gh pr edit "$HEAD_BRANCH" --add-label "$LABEL" || echo "Could not add label '$LABEL'"
 
       # 8️⃣ Fail workflow if rebase failed
       - name: Fail workflow if rebase failed
