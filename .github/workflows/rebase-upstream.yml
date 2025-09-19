@@ -28,6 +28,10 @@ on:
         description: Upstream branch to rebase onto (source)
         required: false
         default: main
+      rebase_conflict_strategy:
+        description: Conflict strategy on rebase failure (none|theirs|ours)
+        required: false
+        default: none
 
 permissions:
   contents: write
@@ -40,6 +44,7 @@ jobs:
     env:
       DOWNSTREAM_BRANCH: ${{ inputs.downstream_branch || 'main' }}
       UPSTREAM_BRANCH: ${{ inputs.upstream_branch || 'main' }}
+      REBASE_STRATEGY: ${{ inputs.rebase_conflict_strategy || 'none' }}
 
     steps:
       # 1️⃣ Checkout downstream repository
@@ -107,11 +112,25 @@ jobs:
         run: |
           git checkout "$DOWNSTREAM_BRANCH"
           if git rebase "upstream/$UPSTREAM_BRANCH"; then
-              echo "rebase_status=success" >> $GITHUB_OUTPUT
+            echo "rebase_status=success" >> $GITHUB_OUTPUT
           else
-              git rebase --abort
+            echo "Plain rebase failed; checking fallback strategy: $REBASE_STRATEGY"
+            # Show conflicted files for diagnostics (if any)
+            git diff --name-only --diff-filter=U || true
+            git rebase --abort || true
+            if [ "$REBASE_STRATEGY" != "none" ]; then
+              echo "Retrying rebase with -X $REBASE_STRATEGY"
+              if git rebase -X "$REBASE_STRATEGY" "upstream/$UPSTREAM_BRANCH"; then
+                echo "rebase_status=success" >> $GITHUB_OUTPUT
+              else
+                git rebase --abort || true
+                echo "rebase_status=failure" >> $GITHUB_OUTPUT
+                echo "Rebase attempted with strategy and failed."
+              fi
+            else
               echo "rebase_status=failure" >> $GITHUB_OUTPUT
               echo "Rebase attempted and failed."
+            fi
           fi
 
       # 5.1️⃣ Ensure rerere cache directory exists before saving
