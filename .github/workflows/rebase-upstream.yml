@@ -59,6 +59,24 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      # 2.1️⃣ Enable rerere (reuse recorded resolutions)
+      # rerere records how you resolve specific conflict hunks, and will
+      # automatically re-apply the same resolution the next time the exact
+      # conflict occurs. This helps make recurring rebases non-interactive.
+      - name: Enable rerere (reuse recorded resolutions)
+        run: |
+          git config rerere.enabled true
+          git config rerere.autoUpdate true
+
+      # 2.2️⃣ Restore rerere cache (persists conflict resolutions across runs)
+      - name: Restore rerere cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .git/rr-cache
+          key: rerere-${{ github.repository }}-${{ env.DOWNSTREAM_BRANCH }}-${{ env.UPSTREAM_BRANCH }}
+          restore-keys: |
+            rerere-${{ github.repository }}-
+
 
       # 3️⃣ Add upstream remote and fetch
       - name: Add upstream remote
@@ -95,6 +113,19 @@ jobs:
               echo "rebase_status=failure" >> $GITHUB_OUTPUT
               echo "Rebase attempted and failed."
           fi
+
+      # 5.1️⃣ Ensure rerere cache directory exists before saving
+      - name: Ensure rerere cache directory
+        if: always()
+        run: mkdir -p .git/rr-cache
+
+      # 5.2️⃣ Save rerere cache to speed up future conflict resolutions
+      - name: Save rerere cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .git/rr-cache
+          key: rerere-${{ github.run_id }}
 
       # 6️⃣ Push to temporary branch for PR
       - name: Push rebased branch
