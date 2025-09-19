@@ -17,7 +17,7 @@ name: Rebase Downstream on Upstream
 
 on:
   schedule:
-    - cron: '0 0 * * *'  
+    - cron: '0 0 * * *'
   workflow_dispatch:
     inputs:
       downstream_branch:
@@ -28,10 +28,6 @@ on:
         description: Upstream branch to rebase onto (source)
         required: false
         default: main
-      rebase_conflict_strategy:
-        description: Conflict strategy on rebase failure (none|theirs|ours)
-        required: false
-        default: none
 
 permissions:
   contents: write
@@ -44,7 +40,6 @@ jobs:
     env:
       DOWNSTREAM_BRANCH: ${{ inputs.downstream_branch || 'main' }}
       UPSTREAM_BRANCH: ${{ inputs.upstream_branch || 'main' }}
-      REBASE_STRATEGY: ${{ inputs.rebase_conflict_strategy || 'none' }}
 
     steps:
       # 1️⃣ Checkout downstream repository
@@ -80,8 +75,8 @@ jobs:
           path: .git/rr-cache
           key: rerere-${{ github.repository }}-${{ env.DOWNSTREAM_BRANCH }}-${{ env.UPSTREAM_BRANCH }}
           restore-keys: |
+            rerere-${{ github.repository }}-${{ env.DOWNSTREAM_BRANCH }}-${{ env.UPSTREAM_BRANCH }}-
             rerere-${{ github.repository }}-
-
 
       # 3️⃣ Add upstream remote and fetch
       - name: Add upstream remote
@@ -105,32 +100,20 @@ jobs:
             echo "up_to_date=false" >> $GITHUB_OUTPUT
           fi
 
-      # 5️⃣ Rebase onto upstream/main if needed
+      # 5️⃣ Rebase onto upstream branch (no strategy fallback)
       - name: Rebase onto upstream branch
         if: steps.check_upstream.outputs.up_to_date == 'false'
         id: rebase
         run: |
           git checkout "$DOWNSTREAM_BRANCH"
           if git rebase "upstream/$UPSTREAM_BRANCH"; then
-            echo "rebase_status=success" >> $GITHUB_OUTPUT
+              echo "rebase_status=success" >> $GITHUB_OUTPUT
           else
-            echo "Plain rebase failed; checking fallback strategy: $REBASE_STRATEGY"
-            # Show conflicted files for diagnostics (if any)
-            git diff --name-only --diff-filter=U || true
-            git rebase --abort || true
-            if [ "$REBASE_STRATEGY" != "none" ]; then
-              echo "Retrying rebase with -X $REBASE_STRATEGY"
-              if git rebase -X "$REBASE_STRATEGY" "upstream/$UPSTREAM_BRANCH"; then
-                echo "rebase_status=success" >> $GITHUB_OUTPUT
-              else
-                git rebase --abort || true
-                echo "rebase_status=failure" >> $GITHUB_OUTPUT
-                echo "Rebase attempted with strategy and failed."
-              fi
-            else
+              # Print conflicted files for diagnostics
+              git diff --name-only --diff-filter=U || true
+              git rebase --abort
               echo "rebase_status=failure" >> $GITHUB_OUTPUT
               echo "Rebase attempted and failed."
-            fi
           fi
 
       # 5.1️⃣ Ensure rerere cache directory exists before saving
@@ -144,7 +127,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .git/rr-cache
-          key: rerere-${{ github.run_id }}
+          key: rerere-${{ github.repository }}-${{ env.DOWNSTREAM_BRANCH }}-${{ env.UPSTREAM_BRANCH }}-${{ github.run_id }}
 
       # 6️⃣ Push to temporary branch for PR
       - name: Push rebased branch
