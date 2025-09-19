@@ -8,3 +8,11 @@ If still blocked by policies, create a fine-scoped classic PAT or fine-grained P
 Repository permissions: Contents (Read/Write), Pull requests (Read/Write), Issues (Read/Write) if you label.
 Store as a secret (e.g., ACTIONS_TOKEN) and set GH_TOKEN: ${{ secrets.ACTIONS_TOKEN }} for the PR step.
 Want me to wire in a secret-based token fallback if GITHUB_TOKEN lacks rights?
+
+
+
+Enforcing linear merges
+In the repo: Settings → General → Pull Requests
+Uncheck “Allow merge commits”
+Check “Allow rebase merging” and/or “Allow squash merging”
+This ensures merges won’t introduce merge commits.
