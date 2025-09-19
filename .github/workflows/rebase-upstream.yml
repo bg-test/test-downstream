@@ -122,33 +122,27 @@ jobs:
           BODY="Automatic rebase of downstream ${DOWNSTREAM_BRANCH} onto upstream/${UPSTREAM_BRANCH}."
           LABEL="automated-rebase"
 
-          # If a PR already exists for this head branch, update it; otherwise create one.
-          if gh pr view "$HEAD_BRANCH" >/dev/null 2>&1; then
+          # Use gh CLI against the exact repository to avoid context issues
+          REPO_REF="${GITHUB_REPOSITORY}"
+
+          # If a PR already exists for this head branch, update it; otherwise create it
+          if gh pr view "$HEAD_BRANCH" --repo "$REPO_REF" >/dev/null 2>&1; then
             echo "Updating existing PR for $HEAD_BRANCH"
-            gh pr edit "$HEAD_BRANCH" \
+            gh pr edit "$HEAD_BRANCH" --repo "$REPO_REF" \
               --title "$TITLE" \
               --body "$BODY"
           else
             echo "Creating PR from $HEAD_BRANCH to $BASE_BRANCH"
-            # If there are no differences, this may return 422; don't fail the job in that case.
-            gh pr create \
+            # If there are no differences or permissions restrict creation, this will fail and stop the job.
+            gh pr create --repo "$REPO_REF" \
               --base "$BASE_BRANCH" \
               --head "$HEAD_BRANCH" \
               --title "$TITLE" \
-              --body "$BODY" || echo "PR create failed (likely no diff); continuing."
+              --body "$BODY"
           fi
 
-          # Attempt to add the label to the PR by selecting via head branch.
-          # gh pr edit "$HEAD_BRANCH" --add-label "$LABEL" || echo "Could not add label '$LABEL'"
-          # Attempt to add the label to the PR by selecting via head branch.
-          # On failure, print the exact error output and show existing labels for diagnostics.
-          if ! LABEL_OUT=$(gh pr edit "$HEAD_BRANCH" --add-label "$LABEL" 2>&1); then
-            STATUS=$?
-            echo "Could not add label '$LABEL' (exit $STATUS). Error output:"
-            echo "$LABEL_OUT"
-            echo "Existing labels on PR (if resolvable):"
-            gh pr view "$HEAD_BRANCH" --json labels --jq '.labels[].name' || echo "Unable to retrieve labels."
-          fi          
+          # Add label to the PR; failures will stop the job
+          gh pr edit "$HEAD_BRANCH" --repo "$REPO_REF" --add-label "$LABEL"
 
       # 8️⃣ Fail workflow if rebase failed
       - name: Fail workflow if rebase failed
