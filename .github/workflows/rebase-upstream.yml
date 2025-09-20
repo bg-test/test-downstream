@@ -158,24 +158,29 @@ jobs:
           # Use gh CLI against the exact repository to avoid context issues
           REPO_REF="${GITHUB_REPOSITORY}"
 
-          # If a PR already exists for this head branch, update it; otherwise create it
-          if gh pr view "$HEAD_BRANCH" --repo "$REPO_REF" >/dev/null 2>&1; then
-            echo "Updating existing PR for $HEAD_BRANCH"
-            gh pr edit "$HEAD_BRANCH" --repo "$REPO_REF" \
+          # Find an open PR for this head branch; if none exists, create one
+          PR_NUMBER=$(gh pr list --repo "$REPO_REF" --head "$HEAD_BRANCH" --state open --json number --jq '.[0].number')
+
+          if [ -n "$PR_NUMBER" ]; then
+            echo "Updating existing open PR #$PR_NUMBER for $HEAD_BRANCH"
+            gh pr edit "$PR_NUMBER" --repo "$REPO_REF" \
               --title "$TITLE" \
               --body "$BODY"
           else
             echo "Creating PR from $HEAD_BRANCH to $BASE_BRANCH"
-            # If there are no differences or permissions restrict creation, this will fail and stop the job.
             gh pr create --repo "$REPO_REF" \
               --base "$BASE_BRANCH" \
               --head "$HEAD_BRANCH" \
               --title "$TITLE" \
               --body "$BODY"
+            # Re-query to capture the new PR number for labeling
+            PR_NUMBER=$(gh pr list --repo "$REPO_REF" --head "$HEAD_BRANCH" --state open --json number --jq '.[0].number')
           fi
 
           # Add label to the PR; failures will stop the job
-          gh pr edit "$HEAD_BRANCH" --repo "$REPO_REF" --add-label "$LABEL"
+          if [ -n "$PR_NUMBER" ]; then
+            gh pr edit "$PR_NUMBER" --repo "$REPO_REF" --add-label "$LABEL"
+          fi
 
       # 8️⃣ Fail workflow if rebase failed
       - name: Fail workflow if rebase failed
