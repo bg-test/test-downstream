@@ -12,7 +12,8 @@ name: Rebase Downstream on Upstream
 # 2) Add and fetch the upstream remote
 # 3) Detect if upstream is already contained in downstream; if yes, exit early
 # 4) Rebase downstream onto upstream
-# 5) Push the rebased history directly to the downstream branch (force-with-lease)
+# 5) Push rebased history to a temporary branch (force-with-lease)
+# 6) Create or update a PR from the temporary branch into downstream using GH CLI
 
 on:
   schedule:
@@ -30,6 +31,8 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
+  issues: write
 
 jobs:
   rebase:
@@ -126,15 +129,60 @@ jobs:
           path: .git/rr-cache
           key: rerere-${{ github.repository }}-${{ env.DOWNSTREAM_BRANCH }}-${{ env.UPSTREAM_BRANCH }}-${{ github.run_id }}
 
-      # 6️⃣ Push rebased branch directly to downstream (no PR)
-      - name: Push rebased branch to downstream
+      # 6️⃣ Push to temporary branch for PR
+      - name: Push rebased branch
         if: steps.check_upstream.outputs.up_to_date == 'false' && steps.rebase.outputs.rebase_status == 'success'
         run: |
-          # Push the rebased downstream branch directly. Use force-with-lease
-          # to avoid overwriting unexpected remote updates.
-          git push origin "$DOWNSTREAM_BRANCH" --force-with-lease
+          # Push the rebased downstream branch to a temporary branch that will
+          # back the pull request. Use force-with-lease for safety to avoid
+          # overwriting remote updates made by others unexpectedly.
+          git push origin "$DOWNSTREAM_BRANCH":rebase/"${DOWNSTREAM_BRANCH}"-tmp --force-with-lease
 
-      # 7️⃣ Fail workflow if rebase failed
+      # 7️⃣ Create or update PR for successful rebase
+      - name: Create or update PR
+        if: steps.check_upstream.outputs.up_to_date == 'false' && steps.rebase.outputs.rebase_status == 'success'
+        env:
+          # GitHub CLI uses GH_TOKEN for auth; the default token has repo-scoped permissions.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Use GitHub CLI to create or update a PR from the temporary branch.
+          # This works reliably when the branch was already pushed by earlier steps.
+          set -euo pipefail
+
+          HEAD_BRANCH="rebase/${DOWNSTREAM_BRANCH}-tmp"
+          BASE_BRANCH="${DOWNSTREAM_BRANCH}"
+          TITLE="Rebase ${DOWNSTREAM_BRANCH} onto upstream/${UPSTREAM_BRANCH}"
+          BODY="Automatic rebase of downstream ${DOWNSTREAM_BRANCH} onto upstream/${UPSTREAM_BRANCH}."
+          LABEL="automated-rebase"
+
+          # Use gh CLI against the exact repository to avoid context issues
+          REPO_REF="${GITHUB_REPOSITORY}"
+
+          # Find an open PR for this head branch; if none exists, create one
+          PR_NUMBER=$(gh pr list --repo "$REPO_REF" --head "$HEAD_BRANCH" --state open --json number --jq '.[0].number')
+
+          if [ -n "$PR_NUMBER" ]; then
+            echo "Updating existing open PR #$PR_NUMBER for $HEAD_BRANCH"
+            gh pr edit "$PR_NUMBER" --repo "$REPO_REF" \
+              --title "$TITLE" \
+              --body "$BODY"
+          else
+            echo "Creating PR from $HEAD_BRANCH to $BASE_BRANCH"
+            gh pr create --repo "$REPO_REF" \
+              --base "$BASE_BRANCH" \
+              --head "$HEAD_BRANCH" \
+              --title "$TITLE" \
+              --body "$BODY"
+            # Re-query to capture the new PR number for labeling
+            PR_NUMBER=$(gh pr list --repo "$REPO_REF" --head "$HEAD_BRANCH" --state open --json number --jq '.[0].number')
+          fi
+
+          # Add label to the PR; failures will stop the job
+          if [ -n "$PR_NUMBER" ]; then
+            gh pr edit "$PR_NUMBER" --repo "$REPO_REF" --add-label "$LABEL"
+          fi
+
+      # 8️⃣ Fail workflow if rebase failed
       - name: Fail workflow if rebase failed
         if: steps.check_upstream.outputs.up_to_date == 'false' && steps.rebase.outputs.rebase_status == 'failure'
         run: exit 1
