@@ -1,4 +1,4 @@
-name: Rebase Downstream on Upstream
+name: Rebase Downstream on Upstream with PR
 # This workflow keeps a downstream branch up to date by rebasing it onto an
 # upstream branch and opening/updating a PR with the rebased result.
 #
